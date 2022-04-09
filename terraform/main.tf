@@ -15,6 +15,12 @@ variable "swarm-node-count" {
   default = "2"
 }
 
+variable "swarm-workers-count" {
+  type    = string
+  default = "2"
+}
+
+
 variable "admin-name" {
   type    = string
   default = "adminswarm"
