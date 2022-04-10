@@ -12,7 +12,7 @@ provider "azurerm" {
 
 variable "swarm-node-count" {
   type    = string
-  default = "2"
+  default = "3"
 }
 
 variable "swarm-workers-count" {
@@ -123,7 +123,7 @@ resource "azurerm_network_security_rule" "nsg-rule-ssh-mgmt" {
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_range      = "22"
-  source_address_prefix       =  "${chomp(data.http.my_ip.body)}/32"
+  source_address_prefix       = "${chomp(data.http.my_ip.body)}/32"
   destination_address_prefix  = "*"
   resource_group_name         = azurerm_resource_group.rg.name
   network_security_group_name = azurerm_network_security_group.test.name
@@ -171,8 +171,62 @@ resource "azurerm_lb" "test" {
 resource "azurerm_lb_backend_address_pool" "test" {
   loadbalancer_id = azurerm_lb.test.id
   name            = "Backend"
+
 }
 
+resource "azurerm_lb_probe" "http" {
+  loadbalancer_id     = azurerm_lb.test.id
+  name                = "probe-http"
+  port                = 80
+  protocol            = "Http"
+  request_path        = "/"
+  interval_in_seconds = 20
+  number_of_probes    = 3
+}
+
+resource "azurerm_lb_probe" "https" {
+  loadbalancer_id     = azurerm_lb.test.id
+  name                = "probe-https"
+  port                = 443
+  protocol            = "Tcp" # Tcp, Http and Https
+  interval_in_seconds = 20
+  number_of_probes    = 3
+}
+
+resource "azurerm_lb_rule" "http" {
+  loadbalancer_id                = azurerm_lb.test.id
+  frontend_ip_configuration_name = azurerm_lb.test.frontend_ip_configuration[0].name
+  probe_id                       = azurerm_lb_probe.http.id
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.test.id]
+  load_distribution              = "Default"
+  name                           = "HTTP"
+  protocol                       = "Tcp"
+  frontend_port                  = 80
+  backend_port                   = 80
+
+}
+
+resource "azurerm_lb_rule" "https" {
+  loadbalancer_id                = azurerm_lb.test.id
+  frontend_ip_configuration_name = azurerm_lb.test.frontend_ip_configuration[0].name
+  probe_id                       = azurerm_lb_probe.https.id
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.test.id]
+  load_distribution              = "Default"
+  name                           = "HTTPS"
+  protocol                       = "Tcp"
+  frontend_port                  = 443
+  backend_port                   = 443
+
+}
+
+resource "azurerm_network_interface_backend_address_pool_association" "lb_backend" {
+  count = var.swarm-node-count
+
+  backend_address_pool_id = azurerm_lb_backend_address_pool.test.id
+  network_interface_id    = element(azurerm_network_interface.test.*.id, count.index)
+  ip_configuration_name   = "ipconfig0"
+
+}
 
 resource "azurerm_public_ip" "mgmt-vm" {
   count               = var.swarm-node-count
@@ -264,6 +318,7 @@ resource "azurerm_linux_virtual_machine" "test" {
   tags = {
     role        = "Swarm Cluster"
     environment = "Tech Blog"
+    swarm_role  = "manager"
   }
 }
 
