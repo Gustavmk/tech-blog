@@ -85,7 +85,10 @@ resource "azurerm_key_vault_secret" "ssh-pub-key" {
   value        = tls_private_key.ssh-cluster-swarm.public_key_openssh
   key_vault_id = azurerm_key_vault.test.id
 
-  depends_on = [azurerm_key_vault.test]
+  depends_on = [
+    azurerm_key_vault.test,
+    azurerm_key_vault_access_policy.kv-test-access-policy
+  ]
 
   lifecycle {
     ignore_changes = [value]
@@ -97,7 +100,10 @@ resource "azurerm_key_vault_secret" "ssh-priv-key" {
   value        = tls_private_key.ssh-cluster-swarm.private_key_pem
   key_vault_id = azurerm_key_vault.test.id
 
-  depends_on = [azurerm_key_vault.test]
+  depends_on = [
+    azurerm_key_vault.test,
+    azurerm_key_vault_access_policy.kv-test-access-policy
+  ]
 
   lifecycle {
     ignore_changes = [value]
@@ -115,6 +121,35 @@ resource "azurerm_network_security_group" "test" {
   resource_group_name = azurerm_resource_group.rg.name
 }
 
+resource "azurerm_network_security_rule" "nsg-rule-http" {
+  name                        = "INTERNET_HTTP_IN"
+  priority                    = 200
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "80"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.rg.name
+  network_security_group_name = azurerm_network_security_group.test.name
+}
+
+resource "azurerm_network_security_rule" "nsg-rule-https" {
+  name                        = "INTERNET_HTTPS_IN"
+  priority                    = 201
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "443"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.rg.name
+  network_security_group_name = azurerm_network_security_group.test.name
+}
+
+
 resource "azurerm_network_security_rule" "nsg-rule-ssh-mgmt" {
   name                        = "ssh-mmgmt"
   priority                    = 1000
@@ -128,6 +163,21 @@ resource "azurerm_network_security_rule" "nsg-rule-ssh-mgmt" {
   resource_group_name         = azurerm_resource_group.rg.name
   network_security_group_name = azurerm_network_security_group.test.name
 }
+
+resource "azurerm_network_security_rule" "nsg_rule_traefik_visualizer" {
+  name                        = "traefik_visualizer_IN"
+  priority                    = 1002
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "8080"
+  source_address_prefix       = "${chomp(data.http.my_ip.body)}/32"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.rg.name
+  network_security_group_name = azurerm_network_security_group.test.name
+}
+
 
 resource "azurerm_subnet_network_security_group_association" "nsg-rule" {
   subnet_id                 = azurerm_subnet.test.id
@@ -193,6 +243,15 @@ resource "azurerm_lb_probe" "https" {
   number_of_probes    = 3
 }
 
+resource "azurerm_lb_probe" "traefik_dashboard" {
+  loadbalancer_id     = azurerm_lb.test.id
+  name                = "probe-traefik-dashboard"
+  port                = 8080
+  protocol            = "Tcp" # Tcp, Http and Https
+  interval_in_seconds = 20
+  number_of_probes    = 3
+}
+
 resource "azurerm_lb_rule" "http" {
   loadbalancer_id                = azurerm_lb.test.id
   frontend_ip_configuration_name = azurerm_lb.test.frontend_ip_configuration[0].name
@@ -216,6 +275,19 @@ resource "azurerm_lb_rule" "https" {
   protocol                       = "Tcp"
   frontend_port                  = 443
   backend_port                   = 443
+
+}
+
+resource "azurerm_lb_rule" "traefik_dashboard" {
+  loadbalancer_id                = azurerm_lb.test.id
+  frontend_ip_configuration_name = azurerm_lb.test.frontend_ip_configuration[0].name
+  probe_id                       = azurerm_lb_probe.traefik_dashboard.id
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.test.id]
+  load_distribution              = "Default"
+  name                           = "HTTP_8080"
+  protocol                       = "Tcp"
+  frontend_port                  = 8080
+  backend_port                   = 8080
 
 }
 
